@@ -1,0 +1,1 @@
+# Painel-SafeZone-v1.0
