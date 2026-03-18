@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="pt-br" style="background: transparent !important;">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Safezone</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body style="background: transparent !important; overflow: hidden;">
+    <div id="setup-panel" style="display: none;" onmouseenter="setMouseOver(true)" onmouseleave="setMouseOver(false)">
+        <div class="header">
+            <div class="icon"><i class="fa-solid fa-shield-halved"></i></div>
+            <div class="title">
+                <h1>Painel Safezone</h1>
+                <small id="status-text">MODO: <span id="current-mode">CURSOR</span></small>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" id="btn-create" onclick="switchTab('create')"><i
+                    class="fa-solid fa-plus"></i> CRIAR</button>
+            <button class="tab-btn" id="btn-manage" onclick="switchTab('manage')"><i class="fa-solid fa-list-check"></i>
+                GERENCIAR</button>
+        </div>
+
+        <div id="create-tab" class="tab-content active">
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="label">Pontos Selecionados</span>
+                    <span id="points-count" class="value">0/20</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="fill"></div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="instruction">
+                    <i class="fa-solid fa-keyboard"></i>
+                    <span>Pressione <b>[E]</b> para adicionar ponto</span>
+                </div>
+                <div class="instruction">
+                    <i class="fa-solid fa-mouse"></i>
+                    <span><b>[Botão Esquerdo]</b> Salvar Safezone</span>
+                </div>
+                <div class="instruction">
+                    <i class="fa-solid fa-mouse"></i>
+                    <span><b>[Botão Direito]</b> Desfazer Ponto</span>
+                </div>
+                <div class="instruction">
+                    <i class="fa-solid fa-keyboard"></i>
+                    <span>Pressione <b>[L]</b> para Alternar Mouse</span>
+                </div>
+                <div class="instruction">
+                    <i class="fa-solid fa-circle-xmark"></i>
+                    <span>Pressione <b>[ESC]</b> para sair</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="manage-tab" class="tab-content">
+            <div class="zone-list" id="zone-list">
+                <!-- Zones injected here -->
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-cancel" onclick="cancelCreation()">
+                <i class="fa-solid fa-xmark"></i> CANCELAR TUDO
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal de Salvamento / Renomeação -->
+    <div id="save-modal" class="modal-overlay" style="display: none;" onmouseenter="setMouseOver(true)"
+        onmouseleave="setMouseOver(false)">
+        <div class="modal">
+            <div class="modal-header">
+                <i id="modal-icon" class="fa-solid fa-floppy-disk"></i>
+                <h2 id="modal-title">Salvar Safezone</h2>
+            </div>
+            <div class="modal-body">
+                <p id="modal-desc">Escolha um nome para identificar esta safezone:</p>
+                <input type="text" id="zone-name-input" placeholder="Ex: Praça Principal" maxlength="30">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeSaveModal()">CANCELAR</button>
+                <button class="btn-primary" id="btn-confirm-modal" onclick="confirmSave()">SALVAR</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const panel = document.getElementById('setup-panel');
+        const saveModal = document.getElementById('save-modal');
+        const zoneNameInput = document.getElementById('zone-name-input');
+        const pointsCount = document.getElementById('points-count');
+        const progressFill = document.getElementById('progress-fill');
+        const zoneList = document.getElementById('zone-list');
+        const currentMode = document.getElementById('current-mode');
+        const modalTitle = document.getElementById('modal-title');
+        const modalIcon = document.getElementById('modal-icon');
+        const modalDesc = document.getElementById('modal-desc');
+        const btnConfirmModal = document.getElementById('btn-confirm-modal');
+
+        let currentModalMode = 'save'; // 'save' ou 'rename'
+        let currentEditIndex = null;
+        let activeConfig = {
+            allowRename: true,
+            allowDelete: true,
+            allowTeleport: true,
+            maxPoints: 20
+        };
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            document.getElementById(`btn-${tab}`).classList.add('active');
+            document.getElementById(`${tab}-tab`).classList.add('active');
+
+            if (tab === 'manage') {
+                fetch(`https://${GetParentResourceName()}/getZones`, { method: 'POST', body: JSON.stringify({}) });
+            }
+        }
+
+        window.addEventListener('message', (event) => {
+            const data = event.data;
+
+            if (data.type === 'showSetup') {
+                panel.style.display = data.status ? 'flex' : 'none';
+                if (data.status) {
+                    if (data.config) activeConfig = data.config;
+                    switchTab('create');
+
+                    // Atualiza limite visual inicial
+                    pointsCount.innerText = `0/${activeConfig.maxPoints}`;
+                    pointsCount.style.color = '#ff4466';
+                    progressFill.style.width = `0%`;
+                }
+            }
+
+            if (data.type === 'openSaveModal') {
+                currentModalMode = 'save';
+                modalTitle.innerText = "Salvar Safezone";
+                modalIcon.className = "fa-solid fa-floppy-disk";
+                modalDesc.innerText = "Escolha um nome para identificar esta safezone:";
+                btnConfirmModal.innerText = "SALVAR";
+                saveModal.style.display = 'flex';
+                zoneNameInput.value = '';
+                zoneNameInput.focus();
+            }
+
+            if (data.type === 'updatePoints') {
+                const count = data.count || 0;
+                pointsCount.innerText = `${count}/${activeConfig.maxPoints}`;
+
+                if (count < 4) {
+                    pointsCount.style.color = '#ff4466';
+                } else {
+                    pointsCount.style.color = '#00ff88';
+                }
+
+                progressFill.style.width = `${(count / activeConfig.maxPoints) * 100}%`;
+                progressFill.style.backgroundColor = count >= activeConfig.maxPoints ? '#ff4466' : '#00ff88';
+            }
+
+            if (data.type === 'updateMode') {
+                currentMode.innerText = data.mode.toUpperCase();
+                currentMode.style.color = data.mode === 'Cursor' ? '#00ff88' : '#ffaa00';
+            }
+
+            if (data.type === 'setupZones') {
+                zoneList.innerHTML = '';
+                if (data.zones.length === 0) {
+                    zoneList.innerHTML = '<div class="empty-list">Nenhuma safezone criada</div>';
+                }
+                data.zones.forEach((zone, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'zone-item';
+
+                    let buttons = '';
+                    if (activeConfig.allowRename) {
+                        buttons += `<button class="action-btn edit" onclick="openRenameModal(${index}, '${zone.name}')" title="Renomear"><i class="fa-solid fa-pen-to-square"></i></button>`;
+                    }
+                    if (activeConfig.allowTeleport) {
+                        buttons += `<button class="action-btn tp" onclick="teleportZone(${index})" title="Teleportar"><i class="fa-solid fa-location-arrow"></i></button>`;
+                    }
+                    if (activeConfig.allowDelete) {
+                        buttons += `<button class="action-btn delete" onclick="deleteZone(${index})" title="Deletar"><i class="fa-solid fa-trash"></i></button>`;
+                    }
+
+                    item.innerHTML = `
+                        <div class="zone-info">
+                            <span class="name">${zone.name}</span>
+                            <span class="dots">${zone.edges.length} pontos</span>
+                        </div>
+                        <div class="zone-actions">
+                            ${buttons}
+                        </div>
+                    `;
+                    zoneList.appendChild(item);
+                });
+            }
+        });
+
+        window.addEventListener('keydown', (event) => {
+            if (event.code === 'Escape') {
+                if (saveModal.style.display === 'flex') {
+                    closeSaveModal();
+                } else {
+                    cancelCreation();
+                }
+            }
+            if (event.code === 'Enter' && saveModal.style.display === 'flex') {
+                confirmSave();
+            }
+        });
+
+        function openRenameModal(index, name) {
+            currentModalMode = 'rename';
+            currentEditIndex = index;
+            modalTitle.innerText = "Renomear Safezone";
+            modalIcon.className = "fa-solid fa-pen-to-square";
+            modalDesc.innerText = "Escolha o novo nome para esta safezone:";
+            btnConfirmModal.innerText = "RENOMEAR";
+            saveModal.style.display = 'flex';
+            zoneNameInput.value = name;
+            zoneNameInput.focus();
+
+            fetch(`https://${GetParentResourceName()}/openModal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+        }
+
+        function closeSaveModal() {
+            saveModal.style.display = 'none';
+            fetch(`https://${GetParentResourceName()}/closeModal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+        }
+
+        function confirmSave() {
+            const name = zoneNameInput.value.trim();
+            if (name === "") return;
+
+            if (currentModalMode === 'save') {
+                fetch(`https://${GetParentResourceName()}/confirmSave`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+            } else {
+                fetch(`https://${GetParentResourceName()}/confirmRename`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: currentEditIndex, name })
+                });
+            }
+
+            saveModal.style.display = 'none';
+            fetch(`https://${GetParentResourceName()}/closeModal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+        }
+
+        function setMouseOver(status) {
+            fetch(`https://${GetParentResourceName()}/mouseHUD`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+        }
+
+        function cancelCreation() {
+            fetch(`https://${GetParentResourceName()}/cancelSetup`, { method: 'POST', body: JSON.stringify({}) });
+        }
+
+        function teleportZone(index) {
+            fetch(`https://${GetParentResourceName()}/teleportZone`, {
+                method: 'POST',
+                body: JSON.stringify({ index })
+            });
+        }
+
+        function deleteZone(index) {
+            fetch(`https://${GetParentResourceName()}/deleteZone`, {
+                method: 'POST',
+                body: JSON.stringify({ index })
+            });
+        }
+    </script>
+</body>
+
+</html>
